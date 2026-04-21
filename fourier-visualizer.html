@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>フーリエ変換 可視化ツール</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d1a;
+      --surface: #13131f;
+      --surface2: #1c1c2e;
+      --border: rgba(255,255,255,0.08);
+      --border2: rgba(255,255,255,0.15);
+      --text: #e8e8f0;
+      --text2: #8888a8;
+      --accent: #4a90d9;
+      --accent2: #7b6cf6;
+      --green: #3ecf8e;
+      --canvas-bg: #0a0a14;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 0;
+    }
+
+    header {
+      padding: 20px 28px 16px;
+      border-bottom: 0.5px solid var(--border);
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      background: var(--surface);
+    }
+
+    header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+
+    header p {
+      font-size: 12px;
+      color: var(--text2);
+    }
+
+    .app {
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-width: 1100px;
+    }
+
+    /* ── Top row: image + freq map + controls ── */
+    .top-row {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      align-items: flex-start;
+    }
+
+    .panel {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--text2);
+    }
+
+    canvas {
+      border: 0.5px solid var(--border2);
+      border-radius: 8px;
+      display: block;
+      background: var(--canvas-bg);
+    }
+
+    /* drop zone */
+    #dropzone {
+      width: 180px;
+      height: 180px;
+      border: 1.5px dashed var(--border2);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      color: var(--text2);
+      font-size: 11px;
+      text-align: center;
+      padding: 12px;
+      transition: border-color .2s, color .2s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #dropzone:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    #dropzone.over {
+      border-color: var(--green);
+      color: var(--green);
+      background: rgba(62, 207, 142, 0.04);
+    }
+
+    #dropzone canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border-radius: 9px;
+      border: none;
+    }
+
+    #dropzone .drop-hint {
+      position: relative;
+      z-index: 2;
+      pointer-events: none;
+      background: rgba(13,13,26,0.7);
+      padding: 6px 10px;
+      border-radius: 6px;
+      backdrop-filter: blur(4px);
+    }
+
+    /* controls panel */
+    .ctrl-panel {
+      flex: 1;
+      min-width: 200px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      font-size: 12px;
+      font-weight: 500;
+      padding: 6px 12px;
+      border: 0.5px solid var(--border2);
+      border-radius: 6px;
+      background: var(--surface2);
+      color: var(--text);
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+    }
+
+    button:hover { background: rgba(255,255,255,0.08); }
+
+    button.active {
+      background: rgba(74, 144, 217, 0.18);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .slider-row input[type=range] {
+      flex: 1;
+      accent-color: var(--accent);
+    }
+
+    .slider-row span {
+      font-size: 12px;
+      color: var(--text2);
+      min-width: 28px;
+      text-align: right;
+    }
+
+    .progress-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .progress-bar {
+      height: 4px;
+      background: var(--border2);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 2px;
+      transition: width .15s;
+    }
+
+    .info-text {
+      font-size: 11px;
+      color: var(--text2);
+      line-height: 1.5;
+    }
+
+    /* ── Bottom row: wave + IFFT ── */
+    .bottom-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    @media (max-width: 600px) {
+      .bottom-row { grid-template-columns: 1fr; }
+      .top-row { flex-direction: column; }
+    }
+
+    /* hint bar */
+    .hint {
+      font-size: 11px;
+      color: var(--text2);
+      line-height: 1.6;
+      padding: 10px 14px;
+      background: var(--surface);
+      border: 0.5px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .hint strong { color: var(--text); font-weight: 500; }
+
+    /* loading overlay */
+    #loadingOverlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(13,13,26,0.7);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 12px;
+      font-size: 14px;
+      color: var(--text2);
+    }
+
+    #loadingOverlay.show { display: flex; }
+
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 2px solid var(--border2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>フーリエ変換 可視化ツール</h1>
+  <p>画像をドロップ → 周波数空間を探索 → 逆変換で復元</p>
+</header>
+
+<div class="app">
+
+  <!-- Top row -->
+  <div class="top-row">
+
+    <!-- ① 元画像 drop zone -->
+    <div class="panel">
+      <div class="label">① 元画像</div>
+      <div id="dropzone">
+        <canvas id="previewCanvas" width="180" height="180"></canvas>
+        <div class="drop-hint">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:0 auto 4px;">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <circle cx="8.5" cy="8.5" r="1.5"/>
+            <polyline points="21 15 16 10 5 21"/>
+          </svg>
+          <span>ドラッグ＆ドロップ<br>またはクリック</span>
+        </div>
+      </div>
+      <input type="file" id="fileInput" accept="image/*" style="display:none;">
+    </div>
+
+    <!-- ② 周波数マップ -->
+    <div class="panel">
+      <div class="label">② 周波数マップ（DFT）</div>
+      <canvas id="freqCanvas" width="180" height="180"></canvas>
+      <div class="info-text" style="max-width:180px;">クリック・ドラッグで<br>周波数成分を選択</div>
+    </div>
+
+    <!-- Controls -->
+    <div class="ctrl-panel">
+      <div class="label">操作モード</div>
+      <div class="btn-row">
+        <button id="btnBrush" class="active">ブラシ</button>
+        <button id="btnErase">消去</button>
+        <button id="btnFull">全選択</button>
+        <button id="btnReset">リセット</button>
+      </div>
+
+      <div class="label">ブラシサイズ</div>
+      <div class="slider-row">
+        <input type="range" min="2" max="50" value="14" id="brushSize">
+        <span id="brushLabel">14</span>
+      </div>
+
+      <div class="progress-wrap">
+        <div class="info-text">選択済み周波数成分</div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill" style="width:0%"></div>
+        </div>
+        <div class="info-text" id="progressText">0 / 0 (0%)</div>
+      </div>
+
+      <div class="info-text">
+        <strong>中央</strong> = 低周波（大きな構造・明暗）<br>
+        <strong>外側</strong> = 高周波（エッジ・細部）<br><br>
+        全選択で元画像が完全に復元されます。
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom row -->
+  <div class="bottom-row">
+    <div class="panel">
+      <div class="label">③ 選択成分の波形（水平スライス）</div>
+      <canvas id="waveCanvas" width="500" height="150" style="width:100%;"></canvas>
+    </div>
+    <div class="panel">
+      <div class="label">④ 逆フーリエ変換（合成画像）</div>
+      <canvas id="ifftCanvas" width="500" height="150" style="width:100%;"></canvas>
+    </div>
+  </div>
+
+  <!-- Hint -->
+  <div class="hint">
+    💡 <strong>実験してみよう：</strong>
+    中央だけ選ぶと → ぼやけた画像（低周波のみ）。
+    外側だけ選ぶと → エッジのみ（高周波のみ）。
+    「全選択」で元画像が完全に復元されます。
+    ブラシで少しずつ選択範囲を広げると画像が徐々に鮮明になる様子が観察できます。
+  </div>
+</div>
+
+<!-- Loading -->
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <span id="loadingText">DFT 計算中...</span>
+</div>
+
+<script>
+(function () {
+  const DW = 180, DH = 180; // DFT computation size
+
+  let originalPixels = null;
+  let dftReal = null, dftImag = null, magnitude = null;
+  let maskData = new Uint8Array(DW * DH);
+  let mode = 'brush';
+  let brushSz = 14;
+  let isDragging = false;
+  let previewLoaded = false;
+
+  const dropzone    = document.getElementById('dropzone');
+  const fileInput   = document.getElementById('fileInput');
+  const previewCv   = document.getElementById('previewCanvas');
+  const previewCtx  = previewCv.getContext('2d');
+  const freqCv      = document.getElementById('freqCanvas');
+  const freqCtx     = freqCv.getContext('2d');
+  const waveCv      = document.getElementById('waveCanvas');
+  const waveCtx     = waveCv.getContext('2d');
+  const ifftCv      = document.getElementById('ifftCanvas');
+  const ifftCtx     = ifftCv.getContext('2d');
+  const overlay     = document.getElementById('loadingOverlay');
+  const loadingText = document.getElementById('loadingText');
+
+  // ── Buttons ──
+  document.getElementById('btnBrush').onclick = () => setMode('brush');
+  document.getElementById('btnErase').onclick = () => setMode('erase');
+  document.getElementById('btnReset').onclick = () => { maskData.fill(0); renderFreq(); updateIFFT(); updateProgress(); };
+  document.getElementById('btnFull').onclick  = () => { maskData.fill(1); renderFreq(); updateIFFT(); updateProgress(); };
+  document.getElementById('brushSize').oninput = e => {
+    brushSz = +e.target.value;
+    document.getElementById('brushLabel').textContent = brushSz;
+  };
+
+  function setMode(m) {
+    mode = m;
+    ['btnBrush','btnErase'].forEach(id => document.getElementById(id).classList.remove('active'));
+    document.getElementById(m === 'brush' ? 'btnBrush' : 'btnErase').classList.add('active');
+  }
+
+  // ── File drop / click ──
+  dropzone.onclick = () => fileInput.click();
+  dropzone.ondragover  = e => { e.preventDefault(); dropzone.classList.add('over'); };
+  dropzone.ondragleave = ()  => dropzone.classList.remove('over');
+  dropzone.ondrop = e => {
+    e.preventDefault();
+    dropzone.classList.remove('over');
+    if (e.dataTransfer.files[0]) loadImageFile(e.dataTransfer.files[0]);
+  };
+  fileInput.onchange = e => { if (e.target.files[0]) loadImageFile(e.target.files[0]); };
+
+  function loadImageFile(file) {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      // Draw preview
+      previewCtx.clearRect(0, 0, DW, DH);
+      previewCtx.drawImage(img, 0, 0, DW, DH);
+      previewLoaded = true;
+      // Extract grayscale
+      const tmp = document.createElement('canvas');
+      tmp.width = DW; tmp.height = DH;
+      const tc = tmp.getContext('2d');
+      tc.drawImage(img, 0, 0, DW, DH);
+      const d = tc.getImageData(0, 0, DW, DH).data;
+      originalPixels = new Float32Array(DW * DH);
+      for (let i = 0; i < DW * DH; i++)
+        originalPixels[i] = (d[i*4]*0.299 + d[i*4+1]*0.587 + d[i*4+2]*0.114) / 255;
+      URL.revokeObjectURL(url);
+      maskData.fill(0);
+      computeDFT2D_then_render();
+    };
+    img.src = url;
+  }
+
+  // ── DFT (runs in chunks via setTimeout to keep UI responsive) ──
+  function computeDFT2D_then_render() {
+    overlay.classList.add('show');
+    loadingText.textContent = 'DFT 計算中... 0%';
+    dftReal = new Float32Array(DW * DH);
+    dftImag = new Float32Array(DW * DH);
+    magnitude = new Float32Array(DW * DH);
+    const pi2 = 2 * Math.PI;
+    let v = 0;
+    function nextChunk() {
+      const end = Math.min(v + 4, DH);
+      for (; v < end; v++) {
+        for (let u = 0; u < DW; u++) {
+          let re = 0, im = 0;
+          for (let y = 0; y < DH; y++) {
+            for (let x = 0; x < DW; x++) {
+              const angle = pi2 * (u * x / DW + v * y / DH);
+              const p = originalPixels[y * DW + x];
+              re += p * Math.cos(angle);
+              im -= p * Math.sin(angle);
+            }
+          }
+          re /= (DW * DH); im /= (DW * DH);
+          dftReal[v * DW + u] = re;
+          dftImag[v * DW + u] = im;
+          magnitude[v * DW + u] = Math.sqrt(re * re + im * im);
+        }
+      }
+      loadingText.textContent = 'DFT 計算中... ' + Math.round(v / DH * 100) + '%';
+      if (v < DH) {
+        setTimeout(nextChunk, 0);
+      } else {
+        overlay.classList.remove('show');
+        renderFreq();
+        updateIFFT();
+        updateProgress();
+      }
+    }
+    setTimeout(nextChunk, 0);
+  }
+
+  // ── Render frequency map ──
+  function renderFreq() {
+    if (!magnitude) {
+      freqCtx.fillStyle = '#0a0a14';
+      freqCtx.fillRect(0, 0, DW, DH);
+      freqCtx.fillStyle = '#4a90d9';
+      freqCtx.font = '11px sans-serif';
+      freqCtx.textAlign = 'center';
+      freqCtx.fillText('画像をロード', DW/2, DH/2);
+      return;
+    }
+    let maxMag = 0;
+    for (let i = 0; i < DW * DH; i++) maxMag = Math.max(maxMag, magnitude[i]);
+    const logMax = Math.log(1 + maxMag);
+    const img = freqCtx.createImageData(DW, DH);
+    for (let v = 0; v < DH; v++) {
+      for (let u = 0; u < DW; u++) {
+        // Shift so DC is at center
+        const su = (u + DW/2) % DW;
+        const sv = (v + DH/2) % DH;
+        const idx = sv * DW + su;
+        const bright = Math.floor(255 * Math.log(1 + magnitude[idx]) / logMax);
+        const sel = maskData[idx];
+        const di = (v * DW + u) * 4;
+        if (sel) {
+          img.data[di]   = Math.min(255, bright + 40);   // R
+          img.data[di+1] = Math.min(255, bright + 120);  // G
+          img.data[di+2] = Math.min(255, bright + 60);   // B
+        } else {
+          img.data[di]   = bright >> 1;
+          img.data[di+1] = bright;
+          img.data[di+2] = Math.min(255, bright + 20);
+        }
+        img.data[di+3] = 255;
+      }
+    }
+    freqCtx.putImageData(img, 0, 0);
+  }
+
+  // ── IFFT & wave update ──
+  function updateIFFT() {
+    const pi2 = 2 * Math.PI;
+    // Wave canvas
+    const WW = waveCv.width, WH = waveCv.height;
+    waveCtx.fillStyle = '#0a0a14';
+    waveCtx.fillRect(0, 0, WW, WH);
+
+    // IFFT canvas
+    const IW = ifftCv.width, IH = ifftCv.height;
+    ifftCtx.fillStyle = '#0a0a14';
+    ifftCtx.fillRect(0, 0, IW, IH);
+
+    if (!dftReal) return;
+    const selectedCount = maskData.reduce((a,b) => a+b, 0);
+
+    // Compute full IFFT
+    const result = new Float32Array(DW * DH);
+    let minV = Infinity, maxV = -Infinity;
+    for (let y = 0; y < DH; y++) {
+      for (let x = 0; x < DW; x++) {
+        let re = 0;
+        for (let v = 0; v < DH; v++) {
+          for (let u = 0; u < DW; u++) {
+            const su = (u + DW/2) % DW;
+            const sv = (v + DH/2) % DH;
+            if (!maskData[sv * DW + su]) continue;
+            const angle = pi2 * (u * x / DW + v * y / DH);
+            re += dftReal[v * DW + u] * Math.cos(angle) - dftImag[v * DW + u] * Math.sin(angle);
+          }
+        }
+        result[y * DW + x] = re;
+        if (re < minV) minV = re;
+        if (re > maxV) maxV = re;
+      }
+    }
+    const range = maxV - minV || 1;
+
+    // Draw IFFT image
+    const ifftImg = ifftCtx.createImageData(IW, IH);
+    for (let py = 0; py < IH; py++) {
+      for (let px = 0; px < IW; px++) {
+        const sx = Math.floor(px * DW / IW);
+        const sy = Math.floor(py * DH / IH);
+        const val = Math.floor(255 * (result[sy * DW + sx] - minV) / range);
+        const di = (py * IW + px) * 4;
+        ifftImg.data[di] = val;
+        ifftImg.data[di+1] = val;
+        ifftImg.data[di+2] = val;
+        ifftImg.data[di+3] = 255;
+      }
+    }
+    ifftCtx.putImageData(ifftImg, 0, 0);
+
+    // Wave: horizontal slice at middle row
+    if (selectedCount === 0) {
+      waveCtx.fillStyle = '#4a90d9';
+      waveCtx.font = '12px sans-serif';
+      waveCtx.textAlign = 'center';
+      waveCtx.fillText('周波数を選択してください', WW/2, WH/2);
+      return;
+    }
+    const sliceY = Math.floor(DH / 2);
+    const wave = new Float32Array(DW);
+    for (let x = 0; x < DW; x++) {
+      let re = 0;
+      for (let v = 0; v < DH; v++) {
+        for (let u = 0; u < DW; u++) {
+          const su = (u + DW/2) % DW;
+          const sv = (v + DH/2) % DH;
+          if (!maskData[sv * DW + su]) continue;
+          const angle = pi2 * (u * x / DW + v * sliceY / DH);
+          re += dftReal[v * DW + u] * Math.cos(angle) - dftImag[v * DW + u] * Math.sin(angle);
+        }
+      }
+      wave[x] = re;
+    }
+    let wMin = Infinity, wMax = -Infinity;
+    wave.forEach(v => { if (v < wMin) wMin = v; if (v > wMax) wMax = v; });
+    const wRange = wMax - wMin || 1;
+    const pad = 10;
+    waveCtx.strokeStyle = '#4a90d9';
+    waveCtx.lineWidth = 1.5;
+    waveCtx.beginPath();
+    for (let x = 0; x < DW; x++) {
+      const px = x * WW / DW;
+      const py = WH - pad - ((wave[x] - wMin) / wRange) * (WH - pad*2);
+      x === 0 ? waveCtx.moveTo(px, py) : waveCtx.lineTo(px, py);
+    }
+    waveCtx.stroke();
+    // Fill under curve
+    waveCtx.fillStyle = 'rgba(74,144,217,0.12)';
+    waveCtx.lineTo(WW, WH);
+    waveCtx.lineTo(0, WH);
+    waveCtx.closePath();
+    waveCtx.fill();
+    // Zero line
+    const zeroY = WH - pad - (0 - wMin) / wRange * (WH - pad*2);
+    waveCtx.strokeStyle = 'rgba(255,255,255,0.1)';
+    waveCtx.lineWidth = 0.5;
+    waveCtx.beginPath();
+    waveCtx.moveTo(0, zeroY);
+    waveCtx.lineTo(WW, zeroY);
+    waveCtx.stroke();
+  }
+
+  function updateProgress() {
+    const total = DW * DH;
+    const selected = maskData.reduce((a,b) => a+b, 0);
+    const pct = Math.round(selected / total * 100);
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressText').textContent =
+      selected.toLocaleString() + ' / ' + total.toLocaleString() + ' (' + pct + '%)';
+  }
+
+  // ── Brush interaction on freq canvas ──
+  function getFreqCoord(e) {
+    const rect = freqCv.getBoundingClientRect();
+    const sx = (e.clientX - rect.left) / rect.width  * DW;
+    const sy = (e.clientY - rect.top)  / rect.height * DH;
+    return { x: Math.floor(sx), y: Math.floor(sy) };
+  }
+
+  function applyBrush(cx, cy) {
+    if (!dftReal) return;
+    const r = brushSz;
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx*dx + dy*dy > r*r) continue;
+        const px = ((cx + dx) % DW + DW) % DW;
+        const py = ((cy + dy) % DH + DH) % DH;
+        // Displayed pixel → freq index (accounting for fftshift display)
+        const fx = (px + DW/2) % DW;
+        const fy = (py + DH/2) % DH;
+        maskData[fy * DW + fx] = mode === 'erase' ? 0 : 1;
+      }
+    }
+    renderFreq();
+    updateIFFT();
+    updateProgress();
+  }
+
+  freqCv.addEventListener('mousedown', e => { isDragging = true; applyBrush(...Object.values(getFreqCoord(e))); });
+  freqCv.addEventListener('mousemove', e => { if (isDragging) applyBrush(...Object.values(getFreqCoord(e))); });
+  window.addEventListener('mouseup',  () => { isDragging = false; });
+
+  freqCv.addEventListener('touchstart', e => {
+    e.preventDefault(); isDragging = true;
+    applyBrush(...Object.values(getFreqCoord(e.touches[0])));
+  }, { passive: false });
+  freqCv.addEventListener('touchmove', e => {
+    e.preventDefault();
+    applyBrush(...Object.values(getFreqCoord(e.touches[0])));
+  }, { passive: false });
+  freqCv.addEventListener('touchend', () => { isDragging = false; });
+
+  // ── Demo image (generated, no network needed) ──
+  (function initDemo() {
+    const tmp = document.createElement('canvas');
+    tmp.width = DW; tmp.height = DH;
+    const tc = tmp.getContext('2d');
+
+    tc.fillStyle = '#0a0a14';
+    tc.fillRect(0, 0, DW, DH);
+
+    // Circles
+    const circles = [
+      { x: 50, y: 50, r: 30 },
+      { x: 130, y: 60, r: 20 },
+      { x: 90,  y: 130, r: 25 },
+      { x: 40,  y: 130, r: 14 },
+      { x: 145, y: 130, r: 18 },
+    ];
+    circles.forEach(c => {
+      tc.beginPath();
+      tc.arc(c.x, c.y, c.r, 0, Math.PI*2);
+      tc.fillStyle = 'white';
+      tc.fill();
+    });
+
+    // Horizontal lines
+    [45, 90, 135].forEach(y => {
+      tc.fillStyle = 'rgba(255,255,255,0.6)';
+      tc.fillRect(10, y, DW-20, 2);
+    });
+
+    // Draw preview
+    previewCtx.drawImage(tmp, 0, 0);
+
+    // Extract pixels
+    const d = tc.getImageData(0, 0, DW, DH).data;
+    originalPixels = new Float32Array(DW * DH);
+    for (let i = 0; i < DW * DH; i++)
+      originalPixels[i] = (d[i*4]*0.299 + d[i*4+1]*0.587 + d[i*4+2]*0.114) / 255;
+
+    computeDFT2D_then_render();
+  })();
+
+})();
+</script>
+</body>
+</html>
