@@ -126,8 +126,8 @@ button.active{background:rgba(74,144,217,0.18);border-color:var(--accent);color:
   <div class="hint">
     💡 <strong>使い方:</strong>
     ②の周波数マップをドラッグして成分を選択。
-    <strong>直近で塗った領域</strong>（赤色）から生成される波が③に表示され、
-    <strong>これまでに選択したすべての成分</strong>（青色）を重ね合わせた結果が④に表示されます。
+    <strong>直近で塗った領域</strong>から生成される波が③に表示され、
+    <strong>これまでに選択したすべての成分</strong>を重ね合わせた結果が④に表示されます。
   </div>
 </div>
 
@@ -199,6 +199,10 @@ function loadFile(file) {
     URL.revokeObjectURL(url);
     prevCv.getContext('2d').drawImage(tmp, 0, 0);
     dropSq.classList.add('hasimg');
+    
+    // 【修正1】画像の再読み込み時に背景マグニチュードのキャッシュをクリアする
+    _magCache = null;
+    
     mask.fill(0);
     currentStrokeMask.fill(0);
     runFFT();
@@ -366,10 +370,10 @@ function drawWaveAndIFFT() {
 
   for (let i = 0; i < N*N; i++) {
     const v2 = hasWave ? Math.floor(255 * (reWave[i] - mnW) / rngW) : 0;
-    // 波形は赤色っぽく着色（直近選択の赤と対応）
-    wId.data[i*4  ] = Math.min(255, v2 + 40);
-    wId.data[i*4+1] = Math.min(255, v2 >> 1);
-    wId.data[i*4+2] = v2 >> 2;
+    // 【修正2】③の波形を白黒（グレースケール）に変更
+    wId.data[i*4  ] = v2;
+    wId.data[i*4+1] = v2;
+    wId.data[i*4+2] = v2;
     wId.data[i*4+3] = 255;
   }
   wCtx.putImageData(wId, 0, 0);
@@ -391,7 +395,7 @@ function drawWaveAndIFFT() {
 
   // テキストのオーバーレイ
   if (!hasWave) {
-    wCtx.fillStyle = '#f66c6c'; wCtx.font = '14px sans-serif'; wCtx.textAlign = 'center';
+    wCtx.fillStyle = '#8888a8'; wCtx.font = '14px sans-serif'; wCtx.textAlign = 'center';
     wCtx.fillText('領域をクリック・ドラッグ', N/2, N/2);
   }
   if (!hasIfft) {
@@ -420,6 +424,12 @@ function getCoord(e) {
 
 function applyBrush(u, v, doRefresh = true) {
   if (!FR) return;
+  
+  // 【修正4】常に直近のブラシ領域(1回分)のみを③に描画するため、毎回リセットする
+  if (mode === 'brush' || mode === 'erase') {
+    currentStrokeMask.fill(0);
+  }
+
   for (let dv = -bsz; dv <= bsz; dv++) {
     for (let du = -bsz; du <= bsz; du++) {
       if (du*du + dv*dv > bsz*bsz) continue;
@@ -428,7 +438,6 @@ function applyBrush(u, v, doRefresh = true) {
       const idx = pv*N + pu;
       mask[idx] = mode === 'erase' ? 0 : 1;
       if (mode === 'brush') currentStrokeMask[idx] = 1;
-      else currentStrokeMask[idx] = 0;
     }
   }
   if (doRefresh) refresh();
@@ -436,7 +445,6 @@ function applyBrush(u, v, doRefresh = true) {
 
 freqSq.addEventListener('mousedown', e => {
   drag = true;
-  if (mode === 'brush' || mode === 'erase') currentStrokeMask.fill(0);
   const {u,v} = getCoord(e);
   applyBrush(u,v);
 });
@@ -456,8 +464,8 @@ window.addEventListener('mouseup', () => { drag = false; });
 
 freqSq.addEventListener('touchstart', e => {
   e.preventDefault(); drag = true;
-  if (mode === 'brush' || mode === 'erase') currentStrokeMask.fill(0);
-  const {u,v} = getCoord(e.touches[0]); applyBrush(u,v);
+  const {u,v} = getCoord(e.touches[0]); 
+  applyBrush(u,v);
 }, { passive: false });
 
 freqSq.addEventListener('touchmove',  e => {
